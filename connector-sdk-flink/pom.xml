@@ -23,7 +23,11 @@
     </properties>
 
     <dependencies>
-
+        <dependency>
+            <groupId>org.sunbird.obsrv.job</groupId>
+            <artifactId>job-sdk-flink</artifactId>
+            <version>1.0.0</version>
+        </dependency>
         <dependency>
             <groupId>org.apache.flink</groupId>
             <artifactId>flink-streaming-scala_${scala.maj.version}</artifactId>
@@ -54,11 +58,6 @@
                     <artifactId>jackson-databind</artifactId>
                 </exclusion>
             </exclusions>
-        </dependency>
-        <dependency>
-            <groupId>org.sunbird.obsrv</groupId>
-            <artifactId>dataset-registry</artifactId>
-            <version>1.0.0</version>
         </dependency>
         <dependency>
             <groupId>org.apache.commons</groupId>
