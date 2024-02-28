@@ -34,7 +34,7 @@ class ConnectorStats(connectorInstanceId: String, json: Option[String]) {
   }
 
   @throws[ObsrvException]
-  def saveState(): Unit = {
+  def saveStats(): Unit = {
     val updCount = ConnectorRegistry.updateConnectorStats(connectorInstanceId, this.toJson())
     if (updCount != 1) {
       throw new ObsrvException(ErrorData("CONN_STATS_SAVE_FAILED", "Unable to save the connector stats"))

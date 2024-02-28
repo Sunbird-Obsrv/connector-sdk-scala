@@ -4,10 +4,12 @@ import com.typesafe.config.{Config, ConfigFactory}
 import mainargs.{ParserForClass, arg, main}
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.SparkSession
+import org.sunbird.obsrv.connector.model.ExecutionMetric
 import org.sunbird.obsrv.connector.model.Models.{ConnectorContext, ConnectorInstance}
 import org.sunbird.obsrv.connector.service.ConnectorRegistry
 import org.sunbird.obsrv.connector.source.DatasetUtil.extensions
-import org.sunbird.obsrv.connector.util.EncryptionUtil
+import org.sunbird.obsrv.connector.util.{EncryptionUtil, MetricsCollector}
+import org.sunbird.obsrv.job.util.Util
 
 import java.io.File
 
@@ -38,12 +40,38 @@ object SourceConnector {
       val connectorInstance = connectorInstanceOpt.get
       val connectorConfig = getConnectorConfig(connectorInstance, config)
       val ctx = connectorInstance.connectorContext
-      val spark = getSparkSession(ctx, config, connector.getSparkConf(config))
-      val dataset = connector.process(ctx, connectorConfig, spark).toJSON
-      dataset.filterLargeEvents(ctx, config).saveToKafka(config, config.getString("kafka.output.connector.failed.topic"))
-      dataset.filterValidEvents(ctx, config).saveToKafka(config, ctx.entryTopic)
+      val metricsCollector = new MetricsCollector(ctx)
+      implicit val spark: SparkSession = getSparkSession(ctx, connectorConfig, connector.getSparkConf(config))
+      import spark.implicits.newStringEncoder
+      val executionMetric = processConnector(connector, ctx, config, metricsCollector)
+      metricsCollector.collect(metricMap = executionMetric.toMetric())
+      spark.createDataset(metricsCollector.toSeq()).saveToKafka(connectorConfig, config.getString("kafka.output.connector.metric.topic"))
       spark.close()
     }
+  }
+
+  private def processConnector(connector: ISourceConnector, ctx:ConnectorContext, config: Config, metricsCollector: MetricsCollector)(implicit spark: SparkSession): ExecutionMetric = {
+    val res = Util.time({
+      val res1 = Util.time({
+        val df = connector.execute(ctx, config, spark, metricsCollector).toJSON
+        val totalRecords = df.count()
+        (df, totalRecords)
+      })
+      val dataset = res1._2._1
+      val res2 = Util.time({
+        val failedEvents = dataset.filterLargeEvents(ctx, config)
+        val validEvents = dataset.filterValidEvents(ctx, config)
+        val failedRecordsCount = failedEvents.count()
+        val validRecordsCount = validEvents.count()
+        failedEvents.saveToKafka(config, config.getString("kafka.output.connector.failed.topic"))
+        validEvents.saveToKafka(config, ctx.entryTopic)
+        ctx.state.saveState()
+        ctx.stats.saveStats()
+        (failedRecordsCount, validRecordsCount)
+      })
+      (res1._2._2, res2._2._1, res2._2._2, res1._1, res2._1)
+    })
+    ExecutionMetric(res._2._1, res._2._2, res._2._3, res._2._4, res._2._5, res._1)
   }
 
   private def getSparkSession(connectorContext: ConnectorContext, config: Config, sparkConfig: Map[String, String]): SparkSession = {
