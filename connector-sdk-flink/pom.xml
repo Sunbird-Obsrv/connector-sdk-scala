@@ -24,6 +24,11 @@
 
     <dependencies>
         <dependency>
+            <groupId>org.sunbird.obsrv.connector</groupId>
+            <artifactId>connector-sdk-core</artifactId>
+            <version>1.0.0</version>
+        </dependency>
+        <dependency>
             <groupId>org.sunbird.obsrv.job</groupId>
             <artifactId>job-sdk-flink</artifactId>
             <version>1.0.0</version>

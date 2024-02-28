@@ -9,6 +9,7 @@ import org.slf4j.LoggerFactory
 import org.sunbird.obsrv.connector.model.ConnectorConstants
 import org.sunbird.obsrv.connector.model.Models._
 import org.sunbird.obsrv.connector.service.ConnectorRegistry
+import org.sunbird.obsrv.connector.util.EncryptionUtil
 import org.sunbird.obsrv.job.exception.ObsrvException
 import org.sunbird.obsrv.job.util.{FlinkKafkaConnector, FlinkUtil, JSONUtil}
 
@@ -26,16 +27,17 @@ object SourceConnector {
     }.getOrElse(ConfigFactory.load("config.json").withFallback(ConfigFactory.load("connector.conf")).withFallback(ConfigFactory.systemEnvironment()))
   }
 
-  def process(args: Array[String], connectorSource: IConnectorSource, connectorFunction: SourceConnectorFunction): Unit = {
+  def process(args: Array[String], connectorSource: IConnectorSource): Unit = {
 
     val config = getConfig(args)
     implicit val env: StreamExecutionEnvironment = FlinkUtil.getExecutionContext(config)
     implicit val kafkaConnector: FlinkKafkaConnector = new FlinkKafkaConnector(config)
+    implicit val encryptionUtil: EncryptionUtil = new EncryptionUtil(config.getString("obsrv.encryption.key"))
     val connectorInstancesMap = getConnectorInstances(config)
     connectorInstancesMap.foreach(entry => {
       val connectorConfig = getConnectorConfig(entry._1, config)
       try {
-        processConnectorInstance(connectorSource, connectorFunction, entry._2.toList, connectorConfig)
+        processConnectorInstance(connectorSource, entry._2.toList, connectorConfig)
       } catch {
         case ex: ObsrvException =>
           logger.error(s"Unable to process connector instance | connectorCtx: ${JSONUtil.serialize(entry._2.toList)} | error: ${JSONUtil.serialize(ex.error)}", ex)
@@ -45,16 +47,17 @@ object SourceConnector {
     env.execute(config.getString("metadata.id"))
   }
 
-  def processWindow[W <: Window](args: Array[String], connectorSource: IConnectorWindowSource, connectorFunction: SourceConnectorWindowFunction[W]): Unit = {
+  def processWindow[W <: Window](args: Array[String], connectorSource: IConnectorWindowSource[W]): Unit = {
 
     val config = getConfig(args)
     implicit val env: StreamExecutionEnvironment = FlinkUtil.getExecutionContext(config)
     implicit val kafkaConnector: FlinkKafkaConnector = new FlinkKafkaConnector(config)
+    implicit val encryptionUtil: EncryptionUtil = new EncryptionUtil(config.getString("obsrv.encryption.key"))
     val connectorInstancesMap = getConnectorInstances(config)
     connectorInstancesMap.foreach(entry => {
       val connectorConfig = getConnectorConfig(entry._1, config)
       try {
-        processConnectorInstanceWindow(connectorSource, connectorFunction, entry._2.toList, connectorConfig)
+        processConnectorInstanceWindow(connectorSource, entry._2.toList, connectorConfig)
       } catch {
         case ex: ObsrvException =>
           logger.error(s"Unable to process connector instance | connectorCtx: ${JSONUtil.serialize(entry._2.toList)} | error: ${JSONUtil.serialize(ex.error)}", ex)
@@ -64,13 +67,12 @@ object SourceConnector {
     env.execute(config.getString("metadata.id"))
   }
 
-  private def processConnectorInstanceWindow[W <: Window](connectorSource: IConnectorWindowSource, connectorFunction: SourceConnectorWindowFunction[W],
-                                                          connectorContexts: List[ConnectorContext], config: Config)
+  private def processConnectorInstanceWindow[W <: Window](connectorSource: IConnectorWindowSource[W], connectorContexts: List[ConnectorContext], config: Config)
                                                          (implicit env: StreamExecutionEnvironment, kafkaConnector: FlinkKafkaConnector): Unit = {
 
     logger.info("[Start] Register connector instance streams")
     val sourceStream: WindowedStream[String, String, W] = connectorSource.getSourceStream(env, config)
-    val dataStream = sourceStream.process(connectorFunction)
+    val dataStream = sourceStream.process(connectorSource.getSourceFunction(connectorContexts))
 
     connectorContexts.foreach(connectorCtx => {
       processSuccessStream(dataStream, connectorCtx, config)
@@ -79,13 +81,12 @@ object SourceConnector {
     logger.info("[End] Register connector instance streams")
   }
 
-  private def processConnectorInstance(connectorSource: IConnectorSource, connectorFunction: SourceConnectorFunction,
-                                       connectorContexts: List[ConnectorContext], config: Config)
+  private def processConnectorInstance(connectorSource: IConnectorSource, connectorContexts: List[ConnectorContext], config: Config)
                                       (implicit env: StreamExecutionEnvironment, kafkaConnector: FlinkKafkaConnector): Unit = {
 
     logger.info("[Start] Register connector instance streams")
     val sourceStream = connectorSource.getSourceStream(env, config).setParallelism(config.getInt("task.consumer.parallelism")).rebalance()
-    val dataStream = sourceStream.process(connectorFunction)
+    val dataStream = sourceStream.process(connectorSource.getSourceFunction(connectorContexts))
 
     connectorContexts.foreach(connectorCtx => {
       processSuccessStream(dataStream, connectorCtx, config)
@@ -119,8 +120,10 @@ object SourceConnector {
       .setParallelism(downstreamOperatorParallelism)
   }
 
-  private def getConnectorConfig(connectorInstance: ConnectorInstance, config: Config): Config = {
-    ConfigFactory.parseString(connectorInstance.connectorConfig).withFallback(ConfigFactory.parseString(connectorInstance.operationsConfig)).withFallback(config)
+  private def getConnectorConfig(connectorInstance: ConnectorInstance, config: Config)(implicit encryptionUtil: EncryptionUtil): Config = {
+    ConfigFactory.parseString(encryptionUtil.decrypt(connectorInstance.connectorConfig))
+      .withFallback(ConfigFactory.parseString(connectorInstance.operationsConfig))
+      .withFallback(config)
   }
 
   private def getConnectorInstances(config: Config): mutable.Map[ConnectorInstance, mutable.ListBuffer[ConnectorContext]] = {

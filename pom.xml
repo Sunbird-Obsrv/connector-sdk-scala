@@ -18,6 +18,7 @@
     <url>https://sunbird.org/</url>
 
     <modules>
+    	<module>connector-sdk-core</module>
         <module>connector-sdk-flink</module>
         <module>connector-sdk-spark</module>
     </modules>
