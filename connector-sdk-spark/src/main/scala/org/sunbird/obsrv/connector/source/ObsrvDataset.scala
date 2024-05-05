@@ -8,30 +8,41 @@ import org.sunbird.obsrv.job.util.JSONUtil
 
 
 class ObsrvDataset(ds: Dataset[String]) {
+  def getObsrvMeta(ctx: ConnectorContext, errorData: Map[String, String] = Map[String, String]()): String = {
+    val syncts = System.currentTimeMillis()
+    JSONUtil.serialize(Map[String, AnyRef](
+      "syncts" -> s"$syncts",
+      "flags" -> Map[String, AnyRef](),
+      "timespans" -> Map[String, AnyRef](),
+      "error" -> errorData,
+      "source" -> Map[String, AnyRef](
+        "connector" -> ctx.connectorId,
+        "connectorInstance" -> ctx.connectorInstanceId
+      )
+    ))
+  }
 
   def filterLargeEvents(ctx: ConnectorContext, config: Config): Dataset[String] = {
     val maxEventSize = config.getInt("kafka.producer.max-request-size")
+    val obsrvMeta = getObsrvMeta(ctx, Map[String, String]("errCode" -> "CE_1001", "errMsg" -> s"Event data exceeded max configured size of $maxEventSize"))
+    val dataset = ctx.datasetId
     ds.filter(event => {
       val eventSize = event.getBytes("UTF-8").length
       eventSize > maxEventSize
     }).map(event => {
-      JSONUtil.serialize(Map[String, AnyRef](
-        "connector_ctx" -> ctx,
-        "event" -> event,
-        "error" -> ErrorData("CE_1001", s"Event data exceeded max configured size of $maxEventSize")
-      ))
+      s"""{"event":$event, "dataset":$dataset, "obsrv_meta":$obsrvMeta}"""
     })(ds.encoder)
   }
 
   def filterValidEvents(ctx: ConnectorContext, config: Config): Dataset[String] = {
     val maxEventSize = config.getInt("kafka.producer.max-request-size")
+    val obsrvMeta = getObsrvMeta(ctx)
+    val dataset = ctx.datasetId
     ds.filter(event => {
       val eventSize = event.getBytes("UTF-8").length
       eventSize <= maxEventSize
     }).map(event => {
-      val syncts = System.currentTimeMillis()
-      val obsrvMeta = s"""{"syncts":$syncts,"flags":{},"timespans":{},"error":{},"source":{"connector":${ctx.connectorId},"connectorInstance":${ctx.connectorInstanceId}}}"""
-      s"""{"dataset":"${ctx.datasetId}","event":$event,"obsrv_meta":$obsrvMeta}"""
+      s"""{"event":$event, "dataset":$dataset, "obsrv_meta":$obsrvMeta}"""
     })(ds.encoder)
   }
 
