@@ -7,7 +7,7 @@ import org.sunbird.obsrv.job.util.{JSONUtil, PostgresConnectionConfig}
 
 import scala.collection.mutable
 
-class ConnectorStats(postgresConnectionConfig: PostgresConnectionConfig, connectorInstanceId: String, statsJson: Option[String]) {
+class ConnectorStats(postgresConnectionConfig: PostgresConnectionConfig, connectorInstanceId: String, statsJson: Option[String]) extends Serializable {
 
   private val stats: mutable.Map[String, AnyRef] = statsJson match {
     case Some(json) if json != null => JSONUtil.deserialize[mutable.Map[String, AnyRef]](json)
