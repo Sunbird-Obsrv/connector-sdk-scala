@@ -44,7 +44,7 @@ object SourceConnector {
         // TODO: How to raise an event for alerts?
       }
     })
-    env.execute(config.getString("metadata.id"))
+    env.execute(config.getString("connector.metadata.id"))
   }
 
   def processWindow[W <: Window](args: Array[String], connectorSource: IConnectorWindowSource[W]): Unit = {
@@ -64,7 +64,7 @@ object SourceConnector {
         // TODO: How to raise an event for alerts?
       }
     })
-    env.execute(config.getString("metadata.id"))
+    env.execute(config.getString("connector.metadata.id"))
   }
 
   private def processConnectorInstanceWindow[W <: Window](connectorSource: IConnectorWindowSource[W], connectorContexts: List[ConnectorContext], config: Config)
@@ -126,13 +126,13 @@ object SourceConnector {
       .withFallback(config)
   }
 
-  private def getConnectorInstances(postgresConnectionConfig: PostgresConnectionConfig, config: Config): mutable.Map[ConnectorInstance, mutable.ListBuffer[ConnectorContext]] = {
-    val connectorInstances = ConnectorRegistry.getConnectorInstances(postgresConnectionConfig, config.getString("metadata.id"))
+  private def getConnectorInstances(postgresConnectionConfig: PostgresConnectionConfig, config: Config)(implicit encryptionUtil: EncryptionUtil): mutable.Map[ConnectorInstance, mutable.ListBuffer[ConnectorContext]] = {
+    val connectorInstances = ConnectorRegistry.getConnectorInstances(postgresConnectionConfig, config.getString("connector.metadata.id"))
     connectorInstances.map(instances => {
       val connConfigList = mutable.ListBuffer[Map[String, AnyRef]]()
       val connectorInstanceMap = mutable.Map[ConnectorInstance, mutable.ListBuffer[ConnectorContext]]()
       instances.foreach(instance => {
-        val connConfig = JSONUtil.deserialize[Map[String, AnyRef]](instance.connectorConfig)
+        val connConfig = JSONUtil.deserialize[Map[String, AnyRef]](encryptionUtil.decrypt(instance.connectorConfig))
         if (connConfigList.contains(connConfig)) { // Same source pointing to two datasets
           connectorInstanceMap(instance).append(instance.connectorContext)
         } else {
@@ -143,5 +143,4 @@ object SourceConnector {
       connectorInstanceMap
     }).orElse(Some(mutable.Map[ConnectorInstance, mutable.ListBuffer[ConnectorContext]]())).get
   }
-
 }

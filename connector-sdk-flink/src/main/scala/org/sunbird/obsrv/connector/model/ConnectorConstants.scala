@@ -20,6 +20,6 @@ object ConnectorConstants {
   val SUCCESS_OUTPUT_TAG: OutputTag[String] = OutputTag[String]("success-events")
   val SYSTEM_EVENTS_TAG: OutputTag[String] = OutputTag[String]("system-events")
 
-  val INVALID_DATA_FORMAT_ERROR = ErrorData("CE_1000", "Unsupported data format")
+  val INVALID_DATA_FORMAT_ERROR: ErrorData = ErrorData("CE_1000", "Unsupported data format")
 
 }
