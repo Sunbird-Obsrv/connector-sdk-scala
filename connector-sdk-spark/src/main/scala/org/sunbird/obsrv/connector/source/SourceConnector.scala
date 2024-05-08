@@ -33,9 +33,9 @@ object SourceConnector {
   def process(args: Array[String], connector: ISourceConnector): Unit = {
     val connectorArgs = ParserForClass[ConnectorArgs].constructOrExit(args)
     val config = getConfig(connectorArgs)
-    val postgresConnectionConfig = DatasetRegistryConfig.getPostgresConfig(connectorArgs.configFilePath)
+    implicit val postgresConnectionConfig: PostgresConnectionConfig = DatasetRegistryConfig.getPostgresConfig(connectorArgs.configFilePath)
     implicit val encryptionUtil: EncryptionUtil = new EncryptionUtil(config.getString("obsrv.encryption.key"))
-    val connectorInstanceOpt = getConnectorInstance(postgresConnectionConfig, connectorArgs.connectorInstanceId)
+    val connectorInstanceOpt = getConnectorInstance(connectorArgs.connectorInstanceId)
     if (connectorInstanceOpt.isDefined) {
       val connectorInstance = connectorInstanceOpt.get
       val connectorConfig = getConnectorConfig(connectorInstance, config)
@@ -86,8 +86,8 @@ object SourceConnector {
     SparkSession.builder().config(conf).getOrCreate()
   }
 
-  private def getConnectorInstance(postgresConnectionConfig: PostgresConnectionConfig, connectorInstanceId: String): Option[ConnectorInstance] = {
-    ConnectorRegistry.getConnectorInstance(postgresConnectionConfig, connectorInstanceId)
+  private def getConnectorInstance(connectorInstanceId: String)(implicit postgresConnectionConfig: PostgresConnectionConfig): Option[ConnectorInstance] = {
+    ConnectorRegistry.getConnectorInstance(connectorInstanceId)
   }
 
   private def getConnectorConfig(connectorInstance: ConnectorInstance, config: Config)(implicit encryptionUtil: EncryptionUtil): Config = {

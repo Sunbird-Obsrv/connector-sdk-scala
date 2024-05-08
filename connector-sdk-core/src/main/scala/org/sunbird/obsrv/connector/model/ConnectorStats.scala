@@ -7,7 +7,7 @@ import org.sunbird.obsrv.job.util.{JSONUtil, PostgresConnectionConfig}
 
 import scala.collection.mutable
 
-class ConnectorStats(postgresConnectionConfig: PostgresConnectionConfig, connectorInstanceId: String, statsJson: Option[String]) extends Serializable {
+class ConnectorStats(connectorInstanceId: String, statsJson: Option[String])(implicit postgresConnectionConfig: PostgresConnectionConfig) extends Serializable {
 
   private val stats: mutable.Map[String, AnyRef] = statsJson match {
     case Some(json) if json != null => JSONUtil.deserialize[mutable.Map[String, AnyRef]](json)
@@ -36,7 +36,7 @@ class ConnectorStats(postgresConnectionConfig: PostgresConnectionConfig, connect
 
   @throws[ObsrvException]
   def saveStats(): Unit = {
-    val updCount = ConnectorRegistry.updateConnectorStats(postgresConnectionConfig, connectorInstanceId, this.toJson())
+    val updCount = ConnectorRegistry.updateConnectorStats(connectorInstanceId, this.toJson())
     if (updCount != 1) {
       throw new ObsrvException(ErrorData("CONN_STATS_SAVE_FAILED", "Unable to save the connector stats"))
     }

@@ -29,11 +29,11 @@ object SourceConnector {
 
   def process(args: Array[String], connectorSource: IConnectorSource): Unit = {
     val config = getConfig(args)
-    val postgresConnectionConfig = DatasetRegistryConfig.getPostgresConfig(ParameterTool.fromArgs(args).get("config.file.path"))
+    implicit val postgresConnectionConfig: PostgresConnectionConfig = DatasetRegistryConfig.getPostgresConfig(ParameterTool.fromArgs(args).get("config.file.path"))
     implicit val env: StreamExecutionEnvironment = FlinkUtil.getExecutionContext(config)
     implicit val kafkaConnector: FlinkKafkaConnector = new FlinkKafkaConnector(config)
     implicit val encryptionUtil: EncryptionUtil = new EncryptionUtil(config.getString("obsrv.encryption.key"))
-    val connectorInstancesMap = getConnectorInstances(postgresConnectionConfig, config)
+    val connectorInstancesMap = getConnectorInstances(config)
     connectorInstancesMap.foreach(entry => {
       val connectorConfig = getConnectorConfig(entry._1, config)
       try {
@@ -49,11 +49,11 @@ object SourceConnector {
 
   def processWindow[W <: Window](args: Array[String], connectorSource: IConnectorWindowSource[W]): Unit = {
     val config = getConfig(args)
-    val postgresConnectionConfig = DatasetRegistryConfig.getPostgresConfig(ParameterTool.fromArgs(args).get("config.file.path"))
+    implicit val postgresConnectionConfig = DatasetRegistryConfig.getPostgresConfig(ParameterTool.fromArgs(args).get("config.file.path"))
     implicit val env: StreamExecutionEnvironment = FlinkUtil.getExecutionContext(config)
     implicit val kafkaConnector: FlinkKafkaConnector = new FlinkKafkaConnector(config)
     implicit val encryptionUtil: EncryptionUtil = new EncryptionUtil(config.getString("obsrv.encryption.key"))
-    val connectorInstancesMap = getConnectorInstances(postgresConnectionConfig, config)
+    val connectorInstancesMap = getConnectorInstances(config)
     connectorInstancesMap.foreach(entry => {
       val connectorConfig = getConnectorConfig(entry._1, config)
       try {
@@ -126,8 +126,8 @@ object SourceConnector {
       .withFallback(config)
   }
 
-  private def getConnectorInstances(postgresConnectionConfig: PostgresConnectionConfig, config: Config)(implicit encryptionUtil: EncryptionUtil): mutable.Map[ConnectorInstance, mutable.ListBuffer[ConnectorContext]] = {
-    val connectorInstances = ConnectorRegistry.getConnectorInstances(postgresConnectionConfig, config.getString("connector.metadata.id"))
+  private def getConnectorInstances(config: Config)(implicit encryptionUtil: EncryptionUtil, postgresConnectionConfig: PostgresConnectionConfig): mutable.Map[ConnectorInstance, mutable.ListBuffer[ConnectorContext]] = {
+    val connectorInstances = ConnectorRegistry.getConnectorInstances(config.getString("connector.metadata.id"))
     connectorInstances.map(instances => {
       val connConfigList = mutable.ListBuffer[Map[String, AnyRef]]()
       val connectorInstanceMap = mutable.Map[ConnectorInstance, mutable.ListBuffer[ConnectorContext]]()
