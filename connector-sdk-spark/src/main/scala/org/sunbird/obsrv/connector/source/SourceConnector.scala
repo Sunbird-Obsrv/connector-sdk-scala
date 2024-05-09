@@ -9,7 +9,7 @@ import org.sunbird.obsrv.connector.model.Models.{ConnectorContext, ConnectorInst
 import org.sunbird.obsrv.connector.service.ConnectorRegistry
 import org.sunbird.obsrv.connector.source.DatasetUtil.extensions
 import org.sunbird.obsrv.connector.util.{EncryptionUtil, MetricsCollector}
-import org.sunbird.obsrv.job.util.Util
+import org.sunbird.obsrv.job.util.{DatasetRegistryConfig, PostgresConnectionConfig, Util}
 
 import java.io.File
 
@@ -26,14 +26,14 @@ object SourceConnector {
     configFilePath.map {
       path => ConfigFactory.parseFile(new File(path)).resolve()
     }.getOrElse(ConfigFactory.load("config.json")
-      .withFallback(ConfigFactory.load("connector.conf"))
-      .withFallback(ConfigFactory.systemEnvironment()))
+    .withFallback(ConfigFactory.load("connector.conf"))
+    .withFallback(ConfigFactory.systemEnvironment()))
   }
 
   def process(args: Array[String], connector: ISourceConnector): Unit = {
-
     val connectorArgs = ParserForClass[ConnectorArgs].constructOrExit(args)
     val config = getConfig(connectorArgs)
+    implicit val postgresConnectionConfig: PostgresConnectionConfig = DatasetRegistryConfig.getPostgresConfig(connectorArgs.configFilePath)
     implicit val encryptionUtil: EncryptionUtil = new EncryptionUtil(config.getString("obsrv.encryption.key"))
     val connectorInstanceOpt = getConnectorInstance(connectorArgs.connectorInstanceId)
     if (connectorInstanceOpt.isDefined) {
@@ -43,7 +43,7 @@ object SourceConnector {
       val metricsCollector = new MetricsCollector(ctx)
       implicit val spark: SparkSession = getSparkSession(ctx, connectorConfig, connector.getSparkConf(config))
       import spark.implicits.newStringEncoder
-      val executionMetric = processConnector(connector, ctx, config, metricsCollector)
+      val executionMetric = processConnector(connector, ctx, connectorConfig, metricsCollector)
       metricsCollector.collect(metricMap = executionMetric.toMetric())
       spark.createDataset(metricsCollector.toSeq()).saveToKafka(connectorConfig, config.getString("kafka.output.connector.metric.topic"))
       spark.close()
@@ -86,7 +86,7 @@ object SourceConnector {
     SparkSession.builder().config(conf).getOrCreate()
   }
 
-  private def getConnectorInstance(connectorInstanceId: String): Option[ConnectorInstance] = {
+  private def getConnectorInstance(connectorInstanceId: String)(implicit postgresConnectionConfig: PostgresConnectionConfig): Option[ConnectorInstance] = {
     ConnectorRegistry.getConnectorInstance(connectorInstanceId)
   }
 

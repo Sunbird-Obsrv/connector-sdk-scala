@@ -3,15 +3,16 @@ package org.sunbird.obsrv.connector.model
 import org.sunbird.obsrv.connector.service.ConnectorRegistry
 import org.sunbird.obsrv.job.exception.ObsrvException
 import org.sunbird.obsrv.job.model.Models.ErrorData
-import org.sunbird.obsrv.job.util.JSONUtil
+import org.sunbird.obsrv.job.util.{JSONUtil, PostgresConnectionConfig}
 
 import scala.collection.mutable
 
-class ConnectorStats(connectorInstanceId: String, json: Option[String]) {
+class ConnectorStats(connectorInstanceId: String, statsJson: Option[String])(implicit postgresConnectionConfig: PostgresConnectionConfig) extends Serializable {
 
-  private val stats: mutable.Map[String, AnyRef] = json.map(stats => {
-    JSONUtil.deserialize[mutable.Map[String, AnyRef]](stats)
-  }).orElse(Some(mutable.Map[String, AnyRef]())).get
+  private val stats: mutable.Map[String, AnyRef] = statsJson match {
+    case Some(json) if json != null => JSONUtil.deserialize[mutable.Map[String, AnyRef]](json)
+    case _ => mutable.Map[String, AnyRef]()
+  }
 
   def getStat[T](metric: String): Option[T] = {
     stats.get(metric).asInstanceOf[Option[T]]
