@@ -49,7 +49,7 @@ object SourceConnector {
 
   def processWindow[W <: Window](args: Array[String], connectorSource: IConnectorWindowSource[W]): Unit = {
     val config = getConfig(args)
-    implicit val postgresConnectionConfig = DatasetRegistryConfig.getPostgresConfig(ParameterTool.fromArgs(args).get("config.file.path"))
+    implicit val postgresConnectionConfig: PostgresConnectionConfig = DatasetRegistryConfig.getPostgresConfig(ParameterTool.fromArgs(args).get("config.file.path"))
     implicit val env: StreamExecutionEnvironment = FlinkUtil.getExecutionContext(config)
     implicit val kafkaConnector: FlinkKafkaConnector = new FlinkKafkaConnector(config)
     implicit val encryptionUtil: EncryptionUtil = new EncryptionUtil(config.getString("obsrv.encryption.key"))
