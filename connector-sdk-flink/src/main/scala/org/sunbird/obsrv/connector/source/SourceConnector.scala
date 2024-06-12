@@ -4,6 +4,7 @@ import com.typesafe.config.{Config, ConfigFactory}
 import org.apache.flink.api.java.utils.ParameterTool
 import org.apache.flink.streaming.api.datastream.{SingleOutputStreamOperator, WindowedStream}
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment
+import org.apache.flink.streaming.api.functions.sink.SinkFunction
 import org.apache.flink.streaming.api.windowing.windows.Window
 import org.slf4j.LoggerFactory
 import org.sunbird.obsrv.connector.model.ConnectorConstants
@@ -21,103 +22,117 @@ object SourceConnector {
   private[this] val logger = LoggerFactory.getLogger(SourceConnector.getClass)
 
   private def getConfig(args: Array[String]): Config = {
-    val configFilePath = Option(ParameterTool.fromArgs(args).get("config.file.path"))
-    configFilePath.map {
-      path => ConfigFactory.parseFile(new File(path)).resolve()
-    }.getOrElse(ConfigFactory.load("config.json").withFallback(ConfigFactory.load("connector.conf")).withFallback(ConfigFactory.systemEnvironment()))
+    val configFilePathOpt = Option(ParameterTool.fromArgs(args).get("config.file.path"))
+    val configFilePath = configFilePathOpt.getOrElse("config.json")
+    ConfigFactory.load(configFilePath).withFallback(ConfigFactory.load("connector.conf")).withFallback(ConfigFactory.systemEnvironment())
   }
 
-  def process(args: Array[String], connectorSource: IConnectorSource): Unit = {
+  def process(args: Array[String], connectorSource: IConnectorSource)
+             (implicit successSink: SinkFunction[String] = null, failedSink: SinkFunction[String] = null): Unit = {
     val config = getConfig(args)
-    implicit val postgresConnectionConfig: PostgresConnectionConfig = DatasetRegistryConfig.getPostgresConfig(ParameterTool.fromArgs(args).get("config.file.path"))
+    implicit val pgConfig: PostgresConnectionConfig = DatasetRegistryConfig.getPostgresConfig(ParameterTool.fromArgs(args).get("config.file.path"))
     implicit val env: StreamExecutionEnvironment = FlinkUtil.getExecutionContext(config)
-    implicit val kafkaConnector: FlinkKafkaConnector = new FlinkKafkaConnector(config)
-    implicit val encryptionUtil: EncryptionUtil = new EncryptionUtil(config.getString("obsrv.encryption.key"))
+    implicit val kc: FlinkKafkaConnector = if (successSink == null) new FlinkKafkaConnector(config) else null
+    implicit val encUtil: EncryptionUtil = new EncryptionUtil(config.getString("obsrv.encryption.key"))
     val connectorInstancesMap = getConnectorInstances(config)
     connectorInstancesMap.foreach(entry => {
       val connectorConfig = getConnectorConfig(entry._1, config)
       try {
-        processConnectorInstance(connectorSource, entry._2.toList, connectorConfig)
+        processConnectorInstance(connectorSource, entry._2.toList, connectorConfig)(env, kc, successSink, failedSink)
       } catch {
         case ex: ObsrvException =>
           logger.error(s"Unable to process connector instance | connectorCtx: ${JSONUtil.serialize(entry._2.toList)} | error: ${JSONUtil.serialize(ex.error)}", ex)
         // TODO: How to raise an event for alerts?
       }
     })
-    env.execute(config.getString("connector.metadata.id"))
+    env.execute(config.getString("metadata.id"))
   }
 
-  def processWindow[W <: Window](args: Array[String], connectorSource: IConnectorWindowSource[W]): Unit = {
+  def processWindow[W <: Window](args: Array[String], connectorSource: IConnectorWindowSource[W])
+                                (implicit successSink: SinkFunction[String] = null, failedSink: SinkFunction[String] = null): Unit = {
     val config = getConfig(args)
-    implicit val postgresConnectionConfig = DatasetRegistryConfig.getPostgresConfig(ParameterTool.fromArgs(args).get("config.file.path"))
+    implicit val pgConfig = DatasetRegistryConfig.getPostgresConfig(ParameterTool.fromArgs(args).get("config.file.path"))
     implicit val env: StreamExecutionEnvironment = FlinkUtil.getExecutionContext(config)
-    implicit val kafkaConnector: FlinkKafkaConnector = new FlinkKafkaConnector(config)
-    implicit val encryptionUtil: EncryptionUtil = new EncryptionUtil(config.getString("obsrv.encryption.key"))
+    implicit val kc: FlinkKafkaConnector = if (successSink == null) new FlinkKafkaConnector(config) else null
+    implicit val encUtil: EncryptionUtil = new EncryptionUtil(config.getString("obsrv.encryption.key"))
     val connectorInstancesMap = getConnectorInstances(config)
     connectorInstancesMap.foreach(entry => {
       val connectorConfig = getConnectorConfig(entry._1, config)
       try {
-        processConnectorInstanceWindow(connectorSource, entry._2.toList, connectorConfig)
+        processConnectorInstanceWindow(connectorSource, entry._2.toList, connectorConfig)(env, kc, successSink, failedSink)
       } catch {
         case ex: ObsrvException =>
           logger.error(s"Unable to process connector instance | connectorCtx: ${JSONUtil.serialize(entry._2.toList)} | error: ${JSONUtil.serialize(ex.error)}", ex)
         // TODO: How to raise an event for alerts?
       }
     })
-    env.execute(config.getString("connector.metadata.id"))
+    env.execute(config.getString("metadata.id"))
   }
 
   private def processConnectorInstanceWindow[W <: Window](connectorSource: IConnectorWindowSource[W], connectorContexts: List[ConnectorContext], config: Config)
-                                                         (implicit env: StreamExecutionEnvironment, kafkaConnector: FlinkKafkaConnector): Unit = {
+                                                         (implicit env: StreamExecutionEnvironment, kafkaConnector: FlinkKafkaConnector, successSink: SinkFunction[String], failedSink: SinkFunction[String]): Unit = {
 
     logger.info("[Start] Register connector instance streams")
     val sourceStream: WindowedStream[String, String, W] = connectorSource.getSourceStream(env, config)
     val dataStream = sourceStream.process(connectorSource.getSourceFunction(connectorContexts))
 
     connectorContexts.foreach(connectorCtx => {
-      processSuccessStream(dataStream, connectorCtx, config)
-      processFailedStream(dataStream, connectorCtx, config)
+      processSuccessStream(dataStream, connectorCtx, config)(kafkaConnector, successSink, failedSink)
+      processFailedStream(dataStream, connectorCtx, config)(kafkaConnector, failedSink)
     })
     logger.info("[End] Register connector instance streams")
   }
 
   private def processConnectorInstance(connectorSource: IConnectorSource, connectorContexts: List[ConnectorContext], config: Config)
-                                      (implicit env: StreamExecutionEnvironment, kafkaConnector: FlinkKafkaConnector): Unit = {
+                                      (implicit env: StreamExecutionEnvironment, kafkaConnector: FlinkKafkaConnector, successSink: SinkFunction[String], failedSink: SinkFunction[String]): Unit = {
 
     logger.info("[Start] Register connector instance streams")
     val sourceStream = connectorSource.getSourceStream(env, config).setParallelism(config.getInt("task.consumer.parallelism")).rebalance()
     val dataStream = sourceStream.process(connectorSource.getSourceFunction(connectorContexts))
 
     connectorContexts.foreach(connectorCtx => {
-      processSuccessStream(dataStream, connectorCtx, config)
-      processFailedStream(dataStream, connectorCtx, config)
+      processSuccessStream(dataStream, connectorCtx, config)(kafkaConnector, successSink, failedSink)
+      processFailedStream(dataStream, connectorCtx, config)(kafkaConnector, failedSink)
     })
     logger.info("[End] Register connector instance streams")
   }
 
-  private def processFailedStream(dataStream: SingleOutputStreamOperator[String], connectorCtx: ConnectorContext, config: Config)(implicit kafkaConnector: FlinkKafkaConnector): Unit = {
-    val failedSinkId = s"${connectorCtx.datasetId}-${connectorCtx.connectorId}-failed"
+  private def processFailedStream(dataStream: SingleOutputStreamOperator[String], connectorCtx: ConnectorContext, config: Config)
+                                 (implicit kafkaConnector: FlinkKafkaConnector, failedSink: SinkFunction[String]): Unit = {
 
+    val failedSinkId = s"${connectorCtx.datasetId}-${connectorCtx.connectorId}-failed"
     val failedStream = dataStream.getSideOutput(ConnectorConstants.CONNECTOR_FAILED_TAG).process(new FailedEventFunction(connectorCtx))
 
-    failedStream.getSideOutput(ConnectorConstants.FAILED_OUTPUT_TAG)
-      .sinkTo(kafkaConnector.kafkaSink[String](config.getString("kafka.output.connector.failed.topic"))).name(failedSinkId).uid(failedSinkId)
-      .setParallelism(config.getInt("task.downstream.operators.parallelism"))
+    if (failedSink == null) {
+      failedStream.getSideOutput(ConnectorConstants.FAILED_OUTPUT_TAG)
+        .sinkTo(kafkaConnector.kafkaSink[String](config.getString("kafka.output.connector.failed.topic"))).name(failedSinkId).uid(failedSinkId)
+        .setParallelism(config.getInt("task.downstream.operators.parallelism"))
+    } else {
+      failedStream.getSideOutput(ConnectorConstants.FAILED_OUTPUT_TAG).addSink(failedSink)
+    }
   }
 
-  private def processSuccessStream(dataStream: SingleOutputStreamOperator[String], connectorCtx: ConnectorContext, config: Config)(implicit kafkaConnector: FlinkKafkaConnector): Unit = {
+  private def processSuccessStream(dataStream: SingleOutputStreamOperator[String], connectorCtx: ConnectorContext, config: Config)
+                                  (implicit kafkaConnector: FlinkKafkaConnector, successSink: SinkFunction[String], failedSink: SinkFunction[String]): Unit = {
+
     val successSinkId = s"${connectorCtx.datasetId}-${connectorCtx.connectorId}-success"
     val failedSinkId = s"${connectorCtx.datasetId}-${connectorCtx.connectorId}-obsrv-failed"
     val downstreamOperatorParallelism = config.getInt("task.downstream.operators.parallelism")
 
     val successStream = dataStream.getSideOutput(ConnectorConstants.CONNECTOR_SUCCESS_TAG).process(new SuccessEventFunction(connectorCtx, config))
 
-    successStream.getSideOutput(ConnectorConstants.SUCCESS_OUTPUT_TAG)
-      .sinkTo(kafkaConnector.kafkaSink[String](connectorCtx.entryTopic)).name(successSinkId).uid(successSinkId)
-      .setParallelism(downstreamOperatorParallelism)
-    successStream.getSideOutput(ConnectorConstants.FAILED_OUTPUT_TAG)
-      .sinkTo(kafkaConnector.kafkaSink[String](config.getString("kafka.output.connector.failed.topic"))).name(failedSinkId).uid(failedSinkId)
-      .setParallelism(downstreamOperatorParallelism)
+    if (successSink == null) {
+      successStream.getSideOutput(ConnectorConstants.SUCCESS_OUTPUT_TAG)
+        .sinkTo(kafkaConnector.kafkaSink[String](connectorCtx.entryTopic)).name(successSinkId).uid(successSinkId)
+        .setParallelism(downstreamOperatorParallelism)
+      successStream.getSideOutput(ConnectorConstants.FAILED_OUTPUT_TAG)
+        .sinkTo(kafkaConnector.kafkaSink[String](config.getString("kafka.output.connector.failed.topic"))).name(failedSinkId).uid(failedSinkId)
+        .setParallelism(downstreamOperatorParallelism)
+    } else {
+      successStream.getSideOutput(ConnectorConstants.SUCCESS_OUTPUT_TAG).addSink(successSink)
+      successStream.getSideOutput(ConnectorConstants.FAILED_OUTPUT_TAG).addSink(failedSink)
+    }
+
   }
 
   private def getConnectorConfig(connectorInstance: ConnectorInstance, config: Config)(implicit encryptionUtil: EncryptionUtil): Config = {
@@ -127,7 +142,7 @@ object SourceConnector {
   }
 
   private def getConnectorInstances(config: Config)(implicit encryptionUtil: EncryptionUtil, postgresConnectionConfig: PostgresConnectionConfig): mutable.Map[ConnectorInstance, mutable.ListBuffer[ConnectorContext]] = {
-    val connectorInstances = ConnectorRegistry.getConnectorInstances(config.getString("connector.metadata.id"))
+    val connectorInstances = ConnectorRegistry.getConnectorInstances(config.getString("metadata.id"))
     connectorInstances.map(instances => {
       val connConfigList = mutable.ListBuffer[Map[String, AnyRef]]()
       val connectorInstanceMap = mutable.Map[ConnectorInstance, mutable.ListBuffer[ConnectorContext]]()

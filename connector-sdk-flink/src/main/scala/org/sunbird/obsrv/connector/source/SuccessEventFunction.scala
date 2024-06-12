@@ -46,7 +46,7 @@ class SuccessEventFunction(connectorCtx: ConnectorContext, config: Config) exten
       case _ => throw new ObsrvException(ConnectorConstants.INVALID_DATA_FORMAT_ERROR)
     }
     val syncts = System.currentTimeMillis()
-    val obsrvMeta = s"""{"syncts":$syncts,"flags":{},"timespans":{},"error":{},"source":{"connector":${connectorCtx.connectorId},"connectorInstance":${connectorCtx.connectorInstanceId}}}"""
+    val obsrvMeta = s"""{"syncts":$syncts,"flags":{},"timespans":{},"error":{},"source":{"connector":"${connectorCtx.connectorId}","connectorInstance":"${connectorCtx.connectorInstanceId}"}}"""
     JSONUtil.getJsonType(eventJson) match {
       case "ARRAY" => s"""{"dataset":"${connectorCtx.datasetId}","events":$eventJson,"obsrv_meta":$obsrvMeta}"""
       case _ => s"""{"dataset":"${connectorCtx.datasetId}","event":$eventJson,"obsrv_meta":$obsrvMeta}"""

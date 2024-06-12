@@ -7,7 +7,7 @@ import org.apache.flink.streaming.api.windowing.windows.Window
 import org.sunbird.obsrv.connector.model.Models.ConnectorContext
 import org.sunbird.obsrv.job.exception.UnsupportedDataFormatException
 
-trait IConnectorSource {
+trait IConnectorSource extends Serializable {
 
   @throws[UnsupportedDataFormatException]
   def getSourceStream(env: StreamExecutionEnvironment, config: Config): SingleOutputStreamOperator[String]
