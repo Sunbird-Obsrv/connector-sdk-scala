@@ -27,6 +27,9 @@ abstract class SourceConnectorFunction(connectorContexts: List[ConnectorContext]
 
   override def processElement(event: String, context: ProcessFunction[String, String]#Context, metrics: Metrics): Unit = {
 
+    connectorContexts.foreach(ctx => {
+      super.initMetrics(ctx.connectorId, ctx.connectorInstanceId)
+    })
     implicit val ctx: ProcessFunction[String, String]#Context = context
     implicit val mtx: Metrics = metrics
     processEvent(event, successFunction, failedFunction, incMetric)

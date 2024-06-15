@@ -117,15 +117,14 @@ abstract class BaseFlinkConnectorSpec extends FlatSpec with BeforeAndAfterAll {
       SourceConnector.process(Array("--config.file.path", getConnectorConfigFile()), getConnectorSource())(new SuccessSink(), new FailedSink())
     }
     Thread.sleep(10000)
-
-    val failedEvents = EventsSink.failedEvents.asScala.map(f => {
-      JSONUtil.deserialize[Map[String,AnyRef]](f).get("event").get.asInstanceOf[String]
-    }).asJava
-    testFailedEvents(failedEvents)
+    val mutableMetricsMap = mutable.Map[String, Long]()
+    BaseMetricsReporter.gaugeMetrics.toMap.mapValues(f => f.getValue()).map(f => mutableMetricsMap.put(f._1, f._2))
+    testFailedEvents(EventsSink.failedEvents)
     val successEvents = EventsSink.successEvents.asScala.map(f => {
       val event = JSONUtil.deserialize[Map[String, AnyRef]](f).get("event").get
       JSONUtil.serialize(event)
     }).asJava
     testSuccessEvents(successEvents)
+
   }
 }
