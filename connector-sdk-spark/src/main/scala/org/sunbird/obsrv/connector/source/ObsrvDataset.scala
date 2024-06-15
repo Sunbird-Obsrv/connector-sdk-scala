@@ -30,7 +30,7 @@ class ObsrvDataset(ds: Dataset[String]) {
       val eventSize = event.getBytes("UTF-8").length
       eventSize > maxEventSize
     }).map(event => {
-      s"""{"event":$event, "dataset":$dataset, "obsrv_meta":$obsrvMeta}"""
+      s"""{"event":$event, "dataset":"$dataset", "obsrv_meta":$obsrvMeta}"""
     })(ds.encoder)
   }
 
@@ -42,7 +42,7 @@ class ObsrvDataset(ds: Dataset[String]) {
       val eventSize = event.getBytes("UTF-8").length
       eventSize <= maxEventSize
     }).map(event => {
-      s"""{"event":$event, "dataset":$dataset, "obsrv_meta":$obsrvMeta}"""
+      s"""{"event":$event, "dataset":"$dataset", "obsrv_meta":$obsrvMeta}"""
     })(ds.encoder)
   }
 
