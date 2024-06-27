@@ -11,7 +11,7 @@ object ConnectorRegistry {
 
     val postgresConnect = new PostgresConnect(postgresConnectionConfig)
     try {
-      val rs = postgresConnect.executeQuery(s"SELECT ci.*, d.dataset_config, cr.type as connector_type FROM connector_instances as ci JOIN connector_registry cr ON ci.connector_id = cr.id JOIN datasets d ON ci.dataset_id = d.id WHERE ci.connector_id = '$connectorId' AND d.status = 'Live' AND cr.status='Live' AND ci.status = 'Live'")
+      val rs = postgresConnect.executeQuery(s"SELECT ci.*, d.entry_topic, cr.type as connector_type FROM connector_instances as ci JOIN connector_registry cr ON ci.connector_id = cr.id JOIN datasets d ON ci.dataset_id = d.id WHERE ci.connector_id = '$connectorId' AND d.status = 'Live' AND cr.status='Live' AND ci.status = 'Live'")
       Option(Iterator.continually((rs, rs.next)).takeWhile(f => f._2).map(f => f._1).map(result => {
         val datasetSourceConfig = parseConnectorInstance(result)
         datasetSourceConfig
@@ -63,13 +63,11 @@ object ConnectorRegistry {
     val connectorConfig = rs.getString("connector_config")
     val operationsConfig = rs.getString("operations_config")
     val status = rs.getString("status")
-    val datasetConfig = rs.getString("dataset_config")
     val connectorState = Some(rs.getString("connector_state"))
     val connectorStats = Some(rs.getString("connector_stats"))
-    val configMap = JSONUtil.deserialize[Map[String, AnyRef]](datasetConfig)
-    val entryTopic = configMap.get("entry_topic").map(f => f.asInstanceOf[String]).orElse(Some("ingest")).get
+    val entryTopic = rs.getString("entry_topic")
 
     ConnectorInstance(connectorContext = ConnectorContext(connectorId, datasetId, id, connectorType, dataFormat, entryTopic, new ConnectorState(id, connectorState), new ConnectorStats(id, connectorStats)), connectorConfig = connectorConfig, operationsConfig = operationsConfig, status = status)
-    }
+  }
 
 }
