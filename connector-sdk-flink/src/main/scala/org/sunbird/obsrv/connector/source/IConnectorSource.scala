@@ -12,8 +12,7 @@ trait IConnectorSource extends Serializable {
   @throws[UnsupportedDataFormatException]
   def getSourceStream(env: StreamExecutionEnvironment, config: Config): SingleOutputStreamOperator[String]
 
-  def getSourceFunction(contexts: List[ConnectorContext]): SourceConnectorFunction
-
+  def getSourceFunction(contexts: List[ConnectorContext], config: Config): SourceConnectorFunction
 }
 
 trait IConnectorWindowSource[W <: Window] {
@@ -21,6 +20,6 @@ trait IConnectorWindowSource[W <: Window] {
   @throws[UnsupportedDataFormatException]
   def getSourceStream(env: StreamExecutionEnvironment, config: Config): WindowedStream[String, String, W]
 
-  def getSourceFunction(contexts: List[ConnectorContext]): SourceConnectorWindowFunction[W]
+  def getSourceFunction(contexts: List[ConnectorContext], config: Config): SourceConnectorWindowFunction[W]
 
 }
