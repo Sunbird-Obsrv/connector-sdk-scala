@@ -12,9 +12,8 @@ import org.sunbird.obsrv.connector.model.Models._
 import org.sunbird.obsrv.connector.service.ConnectorRegistry
 import org.sunbird.obsrv.connector.util.EncryptionUtil
 import org.sunbird.obsrv.job.exception.ObsrvException
-import org.sunbird.obsrv.job.util.{DatasetRegistryConfig, FlinkKafkaConnector, FlinkUtil, JSONUtil, PostgresConnectionConfig}
+import org.sunbird.obsrv.job.util._
 
-import java.io.File
 import scala.collection.mutable
 
 object SourceConnector {
@@ -51,7 +50,7 @@ object SourceConnector {
   def processWindow[W <: Window](args: Array[String], connectorSource: IConnectorWindowSource[W])
                                 (implicit successSink: SinkFunction[String] = null, failedSink: SinkFunction[String] = null): Unit = {
     val config = getConfig(args)
-    implicit val pgConfig = DatasetRegistryConfig.getPostgresConfig(ParameterTool.fromArgs(args).get("config.file.path"))
+    implicit val pgConfig: PostgresConnectionConfig = DatasetRegistryConfig.getPostgresConfig(ParameterTool.fromArgs(args).get("config.file.path"))
     implicit val env: StreamExecutionEnvironment = FlinkUtil.getExecutionContext(config)
     implicit val kc: FlinkKafkaConnector = if (successSink == null) new FlinkKafkaConnector(config) else null
     implicit val encUtil: EncryptionUtil = new EncryptionUtil(config.getString("obsrv.encryption.key"))
@@ -74,7 +73,7 @@ object SourceConnector {
 
     logger.info("[Start] Register connector instance streams")
     val sourceStream: WindowedStream[String, String, W] = connectorSource.getSourceStream(env, config)
-    val dataStream = sourceStream.process(connectorSource.getSourceFunction(connectorContexts))
+    val dataStream = sourceStream.process(connectorSource.getSourceFunction(connectorContexts, config))
 
     connectorContexts.foreach(connectorCtx => {
       processSuccessStream(dataStream, connectorCtx, config)(kafkaConnector, successSink, failedSink)
@@ -88,7 +87,7 @@ object SourceConnector {
 
     logger.info("[Start] Register connector instance streams")
     val sourceStream = connectorSource.getSourceStream(env, config).setParallelism(config.getInt("task.consumer.parallelism")).rebalance()
-    val dataStream = sourceStream.process(connectorSource.getSourceFunction(connectorContexts))
+    val dataStream = sourceStream.process(connectorSource.getSourceFunction(connectorContexts, config))
 
     connectorContexts.foreach(connectorCtx => {
       processSuccessStream(dataStream, connectorCtx, config)(kafkaConnector, successSink, failedSink)
