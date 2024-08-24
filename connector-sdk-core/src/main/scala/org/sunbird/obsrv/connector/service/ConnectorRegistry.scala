@@ -24,7 +24,7 @@ object ConnectorRegistry {
   def getConnectorInstance(connectorInstanceId: String)(implicit postgresConnectionConfig: PostgresConnectionConfig): Option[ConnectorInstance] = {
     val postgresConnect = new PostgresConnect(postgresConnectionConfig)
     try {
-      val rs = postgresConnect.executeQuery(s"SELECT ci.*, d.dataset_config, cr.type as connector_type FROM connector_instances as ci JOIN connector_registry cr ON ci.connector_id = cr.id JOIN datasets d ON ci.dataset_id = d.id WHERE ci.id = '$connectorInstanceId' AND d.status = 'Live' AND cr.status='Live' AND ci.status = 'Live'")
+      val rs = postgresConnect.executeQuery(s"SELECT ci.*, d.entry_topic, cr.type as connector_type FROM connector_instances as ci JOIN connector_registry cr ON ci.connector_id = cr.id JOIN datasets d ON ci.dataset_id = d.id WHERE ci.id = '$connectorInstanceId' AND d.status = 'Live' AND cr.status='Live' AND ci.status = 'Live'")
       if (rs.next()) {
         Some(parseConnectorInstance(rs))
       } else {
