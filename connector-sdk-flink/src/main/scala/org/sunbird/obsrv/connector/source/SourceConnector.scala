@@ -14,6 +14,8 @@ import org.sunbird.obsrv.connector.util.EncryptionUtil
 import org.sunbird.obsrv.job.exception.ObsrvException
 import org.sunbird.obsrv.job.util._
 
+import java.io.File
+
 import scala.collection.mutable
 
 object SourceConnector {
@@ -23,7 +25,16 @@ object SourceConnector {
   private def getConfig(args: Array[String]): Config = {
     val configFilePathOpt = Option(ParameterTool.fromArgs(args).get("config.file.path"))
     val configFilePath = configFilePathOpt.getOrElse("config.json")
-    ConfigFactory.load(configFilePath).withFallback(ConfigFactory.load("connector.conf")).withFallback(ConfigFactory.systemEnvironment())
+    val configFile = new File(configFilePath)
+    val config: Config = if (configFile.exists()) {
+      println("Loading configuration file from path: " + configFilePath + "...")
+      ConfigFactory.parseFile(configFile).resolve()
+    } else {
+      println("Loading configuration file connector.conf inside the jar...")
+      ConfigFactory.load("connector.conf").withFallback(ConfigFactory.systemEnvironment())
+    }
+    config
+    // ConfigFactory.load(configFilePath).withFallback(ConfigFactory.load("connector.conf")).withFallback(ConfigFactory.systemEnvironment())
   }
 
   def process(args: Array[String], connectorSource: IConnectorSource)
